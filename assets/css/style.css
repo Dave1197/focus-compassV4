@@ -1828,17 +1828,56 @@
 
 /* ── RICH TEXT PAPER MODAL ──────────────────────────────── */
 
-/* Toolbar */
+/* paper-card is a flex column — toolbar always anchors to bottom */
+.paper-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;         /* fill the overlay */
+  overflow: hidden;
+}
+
+.paper-body {
+  flex: 1;
+  overflow-y: auto;     /* ONLY this area scrolls */
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Toolbar sticks to bottom — always visible above keyboard */
 .paper-toolbar {
   display: flex;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   background: #e8dcc0;
-  border-top: 1px solid #c9b07a;   /* now at BOTTOM — border on top */
-  flex-shrink: 0;
-  flex-wrap: wrap;
+  border-top: 1px solid #c9b07a;
+  flex-shrink: 0;           /* never shrink */
+  flex-wrap: nowrap;
   align-items: center;
-  order: 10;                        /* pushes toolbar after footer in flex column */
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+/* Done button lives inside toolbar — pushed to far right */
+.paper-toolbar-done {
+  margin-left: auto;
+  height: 36px;
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-full);
+  background: #3a2e14;
+  color: #f2e8d5;
+  font-size: var(--text-sm);
+  font-family: Lora, Georgia, serif;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.paper-toolbar-done:active {
+  background: #1a1208;
 }
 
 .paper-toolbar-btn {
@@ -1859,6 +1898,7 @@
   padding-inline: var(--space-2);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  flex-shrink: 0;
 }
 
 .paper-toolbar-btn:active,
@@ -1873,6 +1913,7 @@
   margin-inline: var(--space-1);
   align-self: stretch;
   min-height: 24px;
+  flex-shrink: 0;
 }
 
 /* Tap-to-edit hint */
@@ -1891,14 +1932,12 @@
   white-space: nowrap;
 }
 
-.paper-edit-hint.hidden {
-  opacity: 0;
-}
+.paper-edit-hint.hidden { opacity: 0; }
 
 /* Rich text editor area */
 .paper-editor {
   width: 100%;
-  flex: 1;
+  min-height: 100%;
   background: transparent;
   border: none;
   outline: none;
@@ -1908,9 +1947,7 @@
   color: #2a1e08;
   caret-color: #8a6020;
   -webkit-font-smoothing: antialiased;
-  overflow-y: auto;
   padding: 0;
-  min-height: 100%;
 }
 
 .paper-editor:empty::before {
@@ -1935,6 +1972,9 @@
   margin: 0.3em 0;
 }
 
-.paper-editor li {
-  margin-bottom: 0.15em;
+.paper-editor li { margin-bottom: 0.15em; }
+
+/* Hide old standalone footer (Done is now in toolbar) */
+.paper-footer {
+  display: none;
 }
