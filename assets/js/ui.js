@@ -282,7 +282,7 @@ const UI = (() => {
           </button>
         </div>
 
-        <div class="paper-body" style="position:relative;">
+        <div class="paper-body">
           <div class="paper-editor"
               id="paper-editor-${type}"
               data-placeholder="${_escapeHTML(placeholder)}"
@@ -296,36 +296,24 @@ const UI = (() => {
           </span>
         </div>
 
-        <div class="paper-footer">
-          <span class="paper-saved" id="paper-saved-${type}">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" aria-hidden="true">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-            Saved
-          </span>
-          <button class="paper-done-btn">Done</button>
-        </div>
-
         <div class="paper-toolbar">
           <button class="paper-toolbar-btn" data-cmd="bold"
-                  aria-label="Bold" title="Bold"><b>B</b></button>
+                  aria-label="Bold"><b>B</b></button>
           <button class="paper-toolbar-btn" data-cmd="italic"
-                  aria-label="Italic" title="Italic"><i>I</i></button>
+                  aria-label="Italic"><i>I</i></button>
           <button class="paper-toolbar-btn" data-cmd="underline"
-                  aria-label="Underline" title="Underline">
+                  aria-label="Underline">
             <span style="text-decoration:underline">U</span>
           </button>
           <div class="paper-toolbar-sep"></div>
           <button class="paper-toolbar-btn" data-cmd="heading"
-                  aria-label="Heading" title="Heading">H</button>
+                  aria-label="Heading">H</button>
           <button class="paper-toolbar-btn" data-cmd="insertUnorderedList"
-                  aria-label="Bullet list" title="Bullet list">
+                  aria-label="Bullet list">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2.5"
                 stroke-linecap="round" aria-hidden="true">
-              <line x1="9" y1="6" x2="20" y2="6"/>
+              <line x1="9" y1="6"  x2="20" y2="6"/>
               <line x1="9" y1="12" x2="20" y2="12"/>
               <line x1="9" y1="18" x2="20" y2="18"/>
               <circle cx="4" cy="6"  r="1.5" fill="currentColor" stroke="none"/>
@@ -334,27 +322,40 @@ const UI = (() => {
             </svg>
           </button>
           <button class="paper-toolbar-btn" data-cmd="insertOrderedList"
-                  aria-label="Numbered list" title="Numbered list">
+                  aria-label="Numbered list">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2.5"
                 stroke-linecap="round" aria-hidden="true">
               <line x1="10" y1="6"  x2="21" y2="6"/>
               <line x1="10" y1="12" x2="21" y2="12"/>
               <line x1="10" y1="18" x2="21" y2="18"/>
-              <text x="2" y="8"   font-size="7" fill="currentColor"
+              <text x="2" y="8"  font-size="7" fill="currentColor"
                     stroke="none" font-family="serif">1</text>
-              <text x="2" y="14"  font-size="7" fill="currentColor"
+              <text x="2" y="14" font-size="7" fill="currentColor"
                     stroke="none" font-family="serif">2</text>
-              <text x="2" y="20"  font-size="7" fill="currentColor"
+              <text x="2" y="20" font-size="7" fill="currentColor"
                     stroke="none" font-family="serif">3</text>
             </svg>
           </button>
           <div class="paper-toolbar-sep"></div>
           <button class="paper-toolbar-btn" data-cmd="removeFormat"
-                  aria-label="Clear formatting" title="Clear formatting"
+                  aria-label="Clear formatting"
                   style="font-size:11px;font-family:sans-serif;letter-spacing:-0.5px;">
             T<sub style="font-size:8px">x</sub>
           </button>
+
+          <span class="paper-saved" id="paper-saved-${type}"
+                style="font-size:11px;color:#8a6020;display:flex;align-items:center;
+                      gap:3px;opacity:0;transition:opacity 400ms;">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Saved
+          </span>
+
+          <button class="paper-toolbar-done" id="paper-done-${type}">Done</button>
         </div>
 
       </div>`;
@@ -368,24 +369,20 @@ const UI = (() => {
     const hint     = overlay.querySelector(`#paper-hint-${type}`);
     const savedEl  = overlay.querySelector(`#paper-saved-${type}`);
     const closeBtn = overlay.querySelector('.paper-close');
-    const doneBtn  = overlay.querySelector('.paper-done-btn');
+    const doneBtn  = overlay.querySelector(`#paper-done-${type}`);
 
     // Load saved content — NO focus, NO keyboard
     editor.innerHTML = _toHTML(getValue());
 
     // ── Tap to edit — enable contenteditable + focus ──────
-    function _enableEditing() {
-      editor.contentEditable = 'true';
-      hint.classList.add('hidden');
-      editor.focus();
-      // Move cursor to end
-      const range = document.createRange();
-      const sel   = window.getSelection();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
+  function _enableEditing() {
+    // Only activate once — after that let the browser handle cursor natively
+    if (editor.contentEditable === 'true') return;
+    editor.contentEditable = 'true';
+    hint.classList.add('hidden');
+    // Do NOT move cursor — let browser place it where user tapped
+    editor.focus();
+  }
 
     editor.addEventListener('click', _enableEditing);
     editor.addEventListener('focus', () => hint.classList.add('hidden'));
@@ -430,8 +427,9 @@ const UI = (() => {
         const html = editor.innerHTML;
         setValue(html);
         _updateMorningPreview(previewId, _htmlToPreview(html));
-        savedEl.classList.add('visible');
-        setTimeout(() => savedEl.classList.remove('visible'), 1800);
+        // savedEl uses opacity now
+        savedEl.style.opacity = '1';
+        setTimeout(() => { savedEl.style.opacity = '0'; }, 1800);
       }, 600);
     }
 
