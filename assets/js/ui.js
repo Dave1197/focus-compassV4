@@ -337,12 +337,7 @@ const UI = (() => {
                     stroke="none" font-family="serif">3</text>
             </svg>
           </button>
-          <div class="paper-toolbar-sep"></div>
-          <button class="paper-toolbar-btn" data-cmd="removeFormat"
-                  aria-label="Clear formatting"
-                  style="font-size:11px;font-family:sans-serif;letter-spacing:-0.5px;">
-            T<sub style="font-size:8px">x</sub>
-          </button>
+
 
           <span class="paper-saved" id="paper-saved-${type}"
                 style="font-size:11px;color:#8a6020;display:flex;align-items:center;
@@ -364,6 +359,13 @@ const UI = (() => {
     requestAnimationFrame(() =>
       requestAnimationFrame(() => overlay.classList.add('open'))
     );
+
+    // Push dummy history entry so Android back button hits THIS, not the app
+    history.pushState({ paperSheet: type }, '');
+
+    // Back button → close modal, not navigate away
+    const _onPopState = () => closeSheet(false); // false = don't push state again
+    window.addEventListener('popstate', _onPopState, { once: true });
 
     const editor   = overlay.querySelector(`#paper-editor-${type}`);
     const hint     = overlay.querySelector(`#paper-hint-${type}`);
@@ -436,7 +438,12 @@ const UI = (() => {
     editor.addEventListener('input', _triggerSave);
 
     // ── Close / Done ──────────────────────────────────────
-    const closeSheet = () => {
+    const closeSheet = (popHistory = true) => {
+      // Remove popstate listener if sheet closed via button (not back)
+      window.removeEventListener('popstate', _onPopState);
+      if (popHistory && history.state?.paperSheet === type) {
+        history.back(); // clean up the dummy entry
+      }
       clearTimeout(saveTimer);
       const html = editor.innerHTML;
       setValue(html);
