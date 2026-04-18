@@ -1,7 +1,6 @@
 /* assets/js/ui.js */
 /* ═══════════════════════════════════════════════════════════
    FOCUS COMPASS — UI Module
-
    Handles:
    - View switching + bottom nav active state
    - Theme toggle (dark ↔ light) + persistence
@@ -27,7 +26,7 @@ const UI = (() => {
 
   let _currentView   = 'morning';
   let _toastQueue    = [];
-  let _sheetStack    = [];   // support nested sheets
+  let _sheetStack    = [];
   let _autoSaveTimer = null;
 
   // ── Init ──────────────────────────────────────────────────
@@ -39,7 +38,28 @@ const UI = (() => {
     _bindMorningButtons();
     _bindDisciplineTabs();
     _ensureToastContainer();
-    _navigateTo('morning', false); // silent — no animation on first load
+    _navigateTo('morning', false);
+
+    // Push a dummy history entry so Android back button hits this first
+    history.pushState({ appHome: true }, '');
+
+    window.addEventListener('popstate', function _appBackHandler(e) {
+      // If a paper sheet handled its own popstate, ignore
+      if (history.state?.paperSheet) return;
+      // Re-push so next back press is also caught
+      history.pushState({ appHome: true }, '');
+      UI.confirm({
+        title:   'Leave Focus Compass?',
+        message: 'You\'ll lose any unsaved notes if you navigate away.',
+        confirm: 'Leave',
+        danger:  true,
+        onConfirm() {
+          window.removeEventListener('popstate', _appBackHandler);
+          history.back();
+          history.back();
+        }
+      });
+    });
   }
 
   // ─────────────────────────────────────────────────────────
@@ -85,7 +105,6 @@ const UI = (() => {
       const next    = current === 'dark' ? 'light' : 'dark';
       Storage.setTheme(next);
       _applyTheme(next);
-      // Re-render charts with new colors
       if (typeof Dashboard !== 'undefined') Dashboard.onThemeChange();
       if (navigator.vibrate) navigator.vibrate(15);
     });
@@ -107,38 +126,25 @@ const UI = (() => {
   function _navigateTo(viewKey, animate = true) {
     if (viewKey === _currentView && animate) return;
 
-    // Hide all views
-    document.querySelectorAll('.view').forEach(v => {
-      v.classList.remove('active');
-    });
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
 
-    // Show target view
-    const targetId = VIEWS[viewKey];
-    const targetEl = document.getElementById(targetId);
+    const targetEl = document.getElementById(VIEWS[viewKey]);
     if (targetEl) {
       targetEl.classList.add('active');
       if (animate) {
         targetEl.style.animation = 'none';
-        requestAnimationFrame(() => {
-          targetEl.style.animation = '';
-        });
+        requestAnimationFrame(() => { targetEl.style.animation = ''; });
       }
     }
 
-    // Update nav active states
     document.querySelectorAll('.nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === viewKey);
     });
 
-    // Update header title
     _updateHeaderTitle(viewKey);
-
     const prev = _currentView;
     _currentView = viewKey;
-
-    // Lifecycle hooks
     _onViewEnter(viewKey, prev);
-
     if (navigator.vibrate) navigator.vibrate(8);
   }
 
@@ -147,9 +153,9 @@ const UI = (() => {
       case 'morning': {
         const greetEl = document.getElementById('morning-greeting-text');
         if (greetEl) greetEl.textContent = _getGreeting() + '.';
-        _updateMorningPreview('preview-avoiding',    Storage.getAvoiding());
-        _updateMorningPreview('preview-quotes',      Storage.getQuotes());
-        _updateMorningPreview('preview-sequential',  Storage.getSequential());
+        _updateMorningPreview('preview-avoiding',   Storage.getAvoiding());
+        _updateMorningPreview('preview-quotes',     Storage.getQuotes());
+        _updateMorningPreview('preview-sequential', Storage.getSequential());
         break;
       }
       case 'habits':
@@ -201,7 +207,7 @@ const UI = (() => {
   }
 
   // ─────────────────────────────────────────────────────────
-  // MORNING VIEW RENDER
+  // MORNING VIEW
   // ─────────────────────────────────────────────────────────
 
   function _bindMorningButtons() {
@@ -216,51 +222,43 @@ const UI = (() => {
   function _openPaperSheet(type) {
     const config = {
       avoiding: {
-        title:     'What I am avoiding',
-        getValue:  () => Storage.getAvoiding(),
-        setValue:  v  => Storage.setAvoiding(v),
-        previewId: 'preview-avoiding',
+        title:       'What I am avoiding',
+        getValue:    () => Storage.getAvoiding(),
+        setValue:    v  => Storage.setAvoiding(v),
+        previewId:   'preview-avoiding',
         placeholder: 'What fears or rejections are you avoiding today?'
       },
       quotes: {
-        title:     'Quotations & Ideas',
-        getValue:  () => Storage.getQuotes(),
-        setValue:  v  => Storage.setQuotes(v),
-        previewId: 'preview-quotes',
-        placeholder: 'Ideas, quotes, and things that inspire you…'
+        title:       'Quotations & Ideas',
+        getValue:    () => Storage.getQuotes(),
+        setValue:    v  => Storage.setQuotes(v),
+        previewId:   'preview-quotes',
+        placeholder: 'Ideas, quotes, and things that inspire you\u2026'
       },
       sequential: {
-        title:     'Sequential-Compounding Tasks',
-        getValue:  () => Storage.getSequential(),
-        setValue:  v  => Storage.setSequential(v),
-        previewId: 'preview-sequential',
-        placeholder: 'Where should your 7 hours go today? Direct your curiosity with intention…'
+        title:       'Sequential-Compounding Tasks',
+        getValue:    () => Storage.getSequential(),
+        setValue:    v  => Storage.setSequential(v),
+        previewId:   'preview-sequential',
+        placeholder: 'Where should your 7 hours go today? Direct your curiosity with intention\u2026'
       }
     };
 
     const { title, getValue, setValue, previewId, placeholder } = config[type];
     let saveTimer = null;
 
-    // Convert plain text → HTML for display (preserve line breaks)
-    // If already HTML (contains tags), use as-is
     function _toHTML(raw) {
       if (!raw) return '';
-      if (/<[a-z][\s\S]*>/i.test(raw)) return raw; // already HTML
-      // Plain text → convert newlines to <br>
-      return raw
-        .split('\n')
-        .map(l => _escapeHTML(l))
-        .join('<br>');
+      if (/<[a-z][\s\S]*>/i.test(raw)) return raw;
+      return raw.split('\n').map(l => _escapeHTML(l)).join('<br>');
     }
 
-    // Convert HTML → plain text for preview
-    function _htmlToPreview(html) {
+    function _htmlToPlain(html) {
       const tmp = document.createElement('div');
       tmp.innerHTML = html;
-      return tmp.textContent || tmp.innerText || '';
+      return (tmp.textContent || tmp.innerText || '').trim();
     }
 
-    // Build overlay
     const overlay = document.createElement('div');
     overlay.className = 'paper-overlay';
     overlay.setAttribute('role', 'dialog');
@@ -269,7 +267,6 @@ const UI = (() => {
 
     overlay.innerHTML = `
       <div class="paper-card" role="document">
-
         <div class="paper-header">
           <span class="paper-title">${_escapeHTML(title)}</span>
           <button class="paper-close" aria-label="Close">
@@ -284,35 +281,27 @@ const UI = (() => {
 
         <div class="paper-body">
           <div class="paper-editor"
-              id="paper-editor-${type}"
-              data-placeholder="${_escapeHTML(placeholder)}"
-              contenteditable="false"
-              spellcheck="true"
-              aria-label="${_escapeHTML(title)}"
-              aria-multiline="true"
-              role="textbox"></div>
-          <span class="paper-edit-hint" id="paper-hint-${type}">
-            Tap to edit
-          </span>
+               id="paper-editor-${type}"
+               data-placeholder="${_escapeHTML(placeholder)}"
+               contenteditable="false"
+               spellcheck="true"
+               role="textbox"
+               aria-multiline="true"
+               aria-label="${_escapeHTML(title)}"></div>
+          <span class="paper-edit-hint" id="paper-hint-${type}">Tap to edit</span>
         </div>
 
         <div class="paper-toolbar">
-          <button class="paper-toolbar-btn" data-cmd="bold"
-                  aria-label="Bold"><b>B</b></button>
-          <button class="paper-toolbar-btn" data-cmd="italic"
-                  aria-label="Italic"><i>I</i></button>
-          <button class="paper-toolbar-btn" data-cmd="underline"
-                  aria-label="Underline">
+          <button class="paper-toolbar-btn" data-cmd="bold" aria-label="Bold"><b>B</b></button>
+          <button class="paper-toolbar-btn" data-cmd="italic" aria-label="Italic"><i>I</i></button>
+          <button class="paper-toolbar-btn" data-cmd="underline" aria-label="Underline">
             <span style="text-decoration:underline">U</span>
           </button>
           <div class="paper-toolbar-sep"></div>
-          <button class="paper-toolbar-btn" data-cmd="heading"
-                  aria-label="Heading">H</button>
-          <button class="paper-toolbar-btn" data-cmd="insertUnorderedList"
-                  aria-label="Bullet list">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" aria-hidden="true">
+          <button class="paper-toolbar-btn" data-cmd="heading" aria-label="Heading">H</button>
+          <button class="paper-toolbar-btn" data-cmd="insertUnorderedList" aria-label="Bullet list">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="9" y1="6"  x2="20" y2="6"/>
               <line x1="9" y1="12" x2="20" y2="12"/>
               <line x1="9" y1="18" x2="20" y2="18"/>
@@ -321,38 +310,26 @@ const UI = (() => {
               <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/>
             </svg>
           </button>
-          <button class="paper-toolbar-btn" data-cmd="insertOrderedList"
-                  aria-label="Numbered list">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" aria-hidden="true">
+          <button class="paper-toolbar-btn" data-cmd="insertOrderedList" aria-label="Numbered list">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="10" y1="6"  x2="21" y2="6"/>
               <line x1="10" y1="12" x2="21" y2="12"/>
               <line x1="10" y1="18" x2="21" y2="18"/>
-              <text x="2" y="8"  font-size="7" fill="currentColor"
-                    stroke="none" font-family="serif">1</text>
-              <text x="2" y="14" font-size="7" fill="currentColor"
-                    stroke="none" font-family="serif">2</text>
-              <text x="2" y="20" font-size="7" fill="currentColor"
-                    stroke="none" font-family="serif">3</text>
+              <text x="2" y="8"  font-size="7" fill="currentColor" stroke="none" font-family="serif">1</text>
+              <text x="2" y="14" font-size="7" fill="currentColor" stroke="none" font-family="serif">2</text>
+              <text x="2" y="20" font-size="7" fill="currentColor" stroke="none" font-family="serif">3</text>
             </svg>
           </button>
-
-
-          <span class="paper-saved" id="paper-saved-${type}"
-                style="font-size:11px;color:#8a6020;display:flex;align-items:center;
-                      gap:3px;opacity:0;transition:opacity 400ms;">
+          <span class="paper-saved-inline" id="paper-saved-${type}">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" aria-hidden="true">
+                stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
             Saved
           </span>
-
           <button class="paper-toolbar-done" id="paper-done-${type}">Done</button>
         </div>
-
       </div>`;
 
     document.body.appendChild(overlay);
@@ -360,76 +337,49 @@ const UI = (() => {
       requestAnimationFrame(() => overlay.classList.add('open'))
     );
 
-    // Push dummy history entry so Android back button hits THIS, not the app
-    history.pushState({ paperSheet: type }, '');
-
-    // Back button → close modal, not navigate away
-    const _onPopState = () => closeSheet(false); // false = don't push state again
-    window.addEventListener('popstate', _onPopState, { once: true });
-
     const editor   = overlay.querySelector(`#paper-editor-${type}`);
     const hint     = overlay.querySelector(`#paper-hint-${type}`);
     const savedEl  = overlay.querySelector(`#paper-saved-${type}`);
-    const closeBtn = overlay.querySelector('.paper-close');
     const doneBtn  = overlay.querySelector(`#paper-done-${type}`);
+    const closeBtn = overlay.querySelector('.paper-close');
 
-    // Load saved content — NO focus, NO keyboard
     editor.innerHTML = _toHTML(getValue());
 
-    // ── Tap to edit — enable contenteditable + focus ──────
-  function _enableEditing() {
-    // Only activate once — after that let the browser handle cursor natively
-    if (editor.contentEditable === 'true') return;
-    editor.contentEditable = 'true';
-    hint.classList.add('hidden');
-    // Do NOT move cursor — let browser place it where user tapped
-    editor.focus();
-  }
+    function _enableEditing() {
+      if (editor.contentEditable === 'true') return;
+      editor.contentEditable = 'true';
+      hint.classList.add('hidden');
+      editor.focus();
+    }
 
     editor.addEventListener('click', _enableEditing);
-    editor.addEventListener('focus', () => hint.classList.add('hidden'));
 
-    // ── Toolbar commands ──────────────────────────────────
     overlay.querySelectorAll('.paper-toolbar-btn').forEach(btn => {
-      btn.addEventListener('mousedown', e => {
-        e.preventDefault(); // prevent blur of editor
-      });
+      btn.addEventListener('mousedown', e => e.preventDefault());
       btn.addEventListener('click', () => {
-        // Ensure editor is editable first
         if (editor.contentEditable !== 'true') _enableEditing();
-
         const cmd = btn.dataset.cmd;
         if (cmd === 'heading') {
-          // Toggle H1 wrap on selection
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0) {
-            const range    = sel.getRangeAt(0);
-            const parent   = range.commonAncestorContainer;
-            const inH1     = (parent.nodeName === 'H1') ||
-                            (parent.parentElement?.nodeName === 'H1');
-            if (inH1) {
-              document.execCommand('formatBlock', false, 'div');
-            } else {
-              document.execCommand('formatBlock', false, 'h1');
-            }
-          }
+          const sel    = window.getSelection();
+          const parent = sel?.rangeCount > 0
+            ? sel.getRangeAt(0).commonAncestorContainer : null;
+          const inH1   = parent?.nodeName === 'H1' ||
+                         parent?.parentElement?.nodeName === 'H1';
+          document.execCommand('formatBlock', false, inH1 ? 'div' : 'h1');
         } else {
           document.execCommand(cmd, false, null);
         }
-
         editor.focus();
         _triggerSave();
       });
     });
 
-    // ── Autosave ──────────────────────────────────────────
     function _triggerSave() {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
         const html = editor.innerHTML;
         setValue(html);
-        _updateMorningPreview(previewId, _htmlToPreview(html));
-        // savedEl uses opacity now
+        _updateMorningPreview(previewId, _htmlToPlain(html));
         savedEl.style.opacity = '1';
         setTimeout(() => { savedEl.style.opacity = '0'; }, 1800);
       }, 600);
@@ -437,65 +387,62 @@ const UI = (() => {
 
     editor.addEventListener('input', _triggerSave);
 
-    // ── Close / Done ──────────────────────────────────────
     const closeSheet = (popHistory = true) => {
-      // Remove popstate listener if sheet closed via button (not back)
       window.removeEventListener('popstate', _onPopState);
       if (popHistory && history.state?.paperSheet === type) {
-        history.back(); // clean up the dummy entry
+        history.back();
       }
       clearTimeout(saveTimer);
-      const html = editor.innerHTML;
-      setValue(html);
-      _updateMorningPreview(previewId, _htmlToPreview(html));
+      setValue(editor.innerHTML);
+      _updateMorningPreview(previewId, _htmlToPlain(editor.innerHTML));
       overlay.classList.remove('open');
       setTimeout(() => overlay.remove(), 240);
       if (navigator.vibrate) navigator.vibrate(10);
     };
 
-    closeBtn.addEventListener('click', closeSheet);
-    doneBtn.addEventListener('click', closeSheet);
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) closeSheet();
-    });
-    overlay.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeSheet();
-    });
+    closeBtn.addEventListener('click', () => closeSheet());
+    doneBtn.addEventListener('click',  () => closeSheet());
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeSheet(); });
+    overlay.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+
+    history.pushState({ paperSheet: type }, '');
+    const _onPopState = () => closeSheet(false);
+    window.addEventListener('popstate', _onPopState, { once: true });
   }
+
+  // ─────────────────────────────────────────────────────────
+  // MORNING PREVIEW
+  // ─────────────────────────────────────────────────────────
 
   function _updateMorningPreview(previewId, value) {
     const el = document.getElementById(previewId);
     if (!el) return;
-
-    // Strip any HTML tags to get plain text for preview
+    // Strip HTML tags to get plain text
     const tmp = document.createElement('div');
     tmp.innerHTML = value;
     const plainText = (tmp.textContent || tmp.innerText || '').trim();
-
     const firstLine = plainText.split('\n')[0].trim();
     if (firstLine) {
       el.textContent = firstLine.length > 40
-        ? firstLine.slice(0, 40) + '…'
+        ? firstLine.slice(0, 40) + '\u2026'
         : firstLine;
       el.classList.remove('empty');
     } else {
-      el.textContent = 'Tap to write…';
+      el.textContent = 'Tap to write\u2026';
       el.classList.add('empty');
     }
   }
 
   // ─────────────────────────────────────────────────────────
-  // REVIEW VIEW FULL RENDER
+  // REVIEW VIEW
   // ─────────────────────────────────────────────────────────
 
   function _renderReviewView() {
-
     _renderStoicThought();
 
     const today    = Storage.getToday();
     const settings = Storage.getSettings();
 
-    // ── Date badge ─────────────────────────────────────────
     const badgeEl = document.getElementById('review-date-badge');
     if (badgeEl) {
       const now  = new Date();
@@ -503,7 +450,6 @@ const UI = (() => {
       badgeEl.textContent = now.toLocaleDateString('en-IN', opts);
     }
 
-    // ── Pomodoro stats ─────────────────────────────────────
     const pomSummary = typeof Pomodoro !== 'undefined'
       ? Pomodoro.getTodaySummary()
       : { pomodoros: today.pomodoros || 0,
@@ -514,98 +460,86 @@ const UI = (() => {
     _setText('review-stat-hours',    pomSummary.hoursWorked + 'h');
     _setText('review-stat-goal-pct', pomSummary.goalPct + '%');
 
-    // ── Habits summary ─────────────────────────────────────
     const habitSummary = _buildHabitSummaryFromStorage();
+    _setText('review-stat-habits', `${habitSummary.checked}/${habitSummary.total}`);
 
-    _setText('review-stat-habits',
-      `${habitSummary.checked}/${habitSummary.total}`);
-
-    // Habit checklist (read-only)
     const habitListEl = document.getElementById('review-habit-list');
     if (habitListEl) {
       if (habitSummary.items.length === 0) {
         habitListEl.innerHTML = `
           <p style="color:var(--color-text-faint);font-size:var(--text-sm);
-                    padding:var(--space-3) 0;">
-            No habits added yet.
-          </p>`;
+                    padding:var(--space-3) 0;">No habits added yet.</p>`;
       } else {
         habitListEl.innerHTML = habitSummary.items.map(item => `
           <div class="review-habit-item ${item.checked ? 'done' : ''}">
             <div class="review-habit-dot"></div>
             <span class="review-habit-name"
                   style="font-size:var(--text-sm);
-                         color:${item.checked
-                           ? 'var(--color-text-muted)'
-                           : 'var(--color-text)'}">
+                         color:${item.checked ? 'var(--color-text-muted)' : 'var(--color-text)'}">
               ${_escapeHTML(item.name)}
             </span>
             <span style="margin-left:auto;font-size:var(--text-xs);
-                         color:${item.checked
-                           ? 'var(--color-success)'
-                           : 'var(--color-text-faint)'}">
-              ${item.checked ? '✓' : '○'}
+                         color:${item.checked ? 'var(--color-success)' : 'var(--color-text-faint)'}">
+              ${item.checked ? '\u2713' : '\u25CB'}
             </span>
           </div>`).join('');
       }
     }
 
-    // ── Feel & Fear badges ─────────────────────────────────
     const feel = today.feel || 0;
     const fear = today.fear || 0;
-
-    _setText('review-feel-value', feel > 0 ? `${feel}/5` : '—');
-    _setText('review-fear-value', fear > 0 ? `${fear}/5` : '—');
+    _setText('review-feel-value', feel > 0 ? `${feel}/5` : '\u2014');
+    _setText('review-fear-value', fear > 0 ? `${fear}/5` : '\u2014');
     _setText('review-feel-desc',  feel > 0 ? _feelDesc(feel)  : 'Not rated yet');
     _setText('review-fear-desc',  fear > 0 ? _fearDesc(fear) : 'Not rated yet');
 
-    // ── Avoiding reminder ──────────────────────────────────
     const avoiding  = Storage.getAvoiding();
     const avoidEl   = document.getElementById('review-avoiding');
     if (avoidEl) {
-      avoidEl.textContent   = avoiding || 'Nothing noted yet.';
+      // Strip HTML for review display
+      const tmp = document.createElement('div');
+      tmp.innerHTML = avoiding;
+      avoidEl.textContent   = tmp.textContent || tmp.innerText || 'Nothing noted yet.';
       avoidEl.style.opacity = avoiding ? '1' : '0.5';
     }
 
-    // ── Quotes / ideas ─────────────────────────────────────
     const quotes   = Storage.getQuotes();
     const quotesEl = document.getElementById('review-quotes');
     if (quotesEl) {
-      quotesEl.textContent   = quotes || 'No quotes noted today.';
+      const tmp = document.createElement('div');
+      tmp.innerHTML = quotes;
+      quotesEl.textContent   = tmp.textContent || tmp.innerText || 'No quotes noted today.';
       quotesEl.style.opacity = quotes ? '1' : '0.5';
     }
 
-    // ── Momentum message ───────────────────────────────────
     _renderMomentumMessage(pomSummary, habitSummary, feel, fear);
   }
 
   function _renderMomentumMessage(pomSummary, habitSummary, feel, fear) {
     const el = document.getElementById('review-momentum');
     if (!el) return;
-
     let msg = '';
-    const pomos   = pomSummary.pomodoros;
+    const pomos    = pomSummary.pomodoros;
     const habitPct = habitSummary.pct;
 
     if (pomos === 0 && habitPct === 0) {
-      msg = 'Day just started — or nothing logged yet. Tomorrow is a fresh page.';
+      msg = 'Day just started \u2014 or nothing logged yet. Tomorrow is a fresh page.';
     } else if (pomSummary.goalPct >= 100) {
-      msg = '🏆 You hit your 7-hour goal today. That\'s rare. Own it.';
+      msg = '\uD83C\uDFC6 You hit your 7-hour goal today. That\'s rare. Own it.';
     } else if (pomos >= 8) {
-      msg = `💪 ${pomos} pomodoros. Solid focused work today.`;
+      msg = `\uD83D\uDCAA ${pomos} pomodoros. Solid focused work today.`;
     } else if (habitPct === 100) {
-      msg = '✅ Every habit checked. Consistency compounds.';
+      msg = '\u2705 Every habit checked. Consistency compounds.';
     } else if (feel >= 4 && fear <= 2) {
-      msg = '😄 High energy, low resistance — you were in the zone today.';
+      msg = '\uD83D\uDE04 High energy, low resistance \u2014 you were in the zone today.';
     } else if (fear >= 4) {
-      msg = '🫂 High resistance today. Showing up anyway is the whole game.';
+      msg = '\uD83E\uDEB4 High resistance today. Showing up anyway is the whole game.';
     } else if (feel <= 2) {
-      msg = '😶 Going through the motions is still motion. Rest if you need it.';
+      msg = '\uD83D\uDE36 Going through the motions is still motion. Rest if you need it.';
     } else {
       msg = `${pomos} pomodoro${pomos !== 1 ? 's' : ''} done. ` +
             `${habitPct}% habits complete. Keep the streak alive.`;
     }
-
     el.textContent = msg;
   }
 
@@ -613,21 +547,18 @@ const UI = (() => {
     const today     = Storage.getToday();
     const habitsObj = today.habits || {};
     const names     = Object.keys(habitsObj);
-
-    const items = names.map(name => ({
-      name:    name,
-      checked: habitsObj[name] === true
-    }));
-
+    const items     = names.map(name => ({ name, checked: habitsObj[name] === true }));
+    const checked   = items.filter(i => i.checked).length;
     return {
-      items:   items.filter(i => i.checked),  // ← only checked habits
+      items,
       total:   items.length,
-      checked: items.filter(i => i.checked).length
+      checked,
+      pct:     items.length > 0 ? Math.round((checked / items.length) * 100) : 0
     };
   }
 
   // ─────────────────────────────────────────────────────────
-  // TOAST SYSTEM
+  // TOAST
   // ─────────────────────────────────────────────────────────
 
   function _ensureToastContainer() {
@@ -661,26 +592,18 @@ const UI = (() => {
               </svg>`
   };
 
-  // toast(message, type, durationMs)
   function toast(message, type = 'success', duration = 2800) {
     const container = document.getElementById('toast-container');
     if (!container) return;
-
     const el = document.createElement('div');
     el.className = `toast ${type}`;
-    el.innerHTML = `
-      ${TOAST_ICONS[type] || TOAST_ICONS.success}
+    el.innerHTML = `${TOAST_ICONS[type] || TOAST_ICONS.success}
       <span>${_escapeHTML(String(message))}</span>`;
-
     container.appendChild(el);
-
-    // Auto-remove
     setTimeout(() => {
       el.classList.add('removing');
       el.addEventListener('animationend', () => el.remove(), { once: true });
     }, duration);
-
-    // Tap to dismiss
     el.addEventListener('click', () => {
       el.classList.add('removing');
       el.addEventListener('animationend', () => el.remove(), { once: true });
@@ -691,13 +614,7 @@ const UI = (() => {
   // BOTTOM SHEET
   // ─────────────────────────────────────────────────────────
 
-  // sheet({
-  //   title, content, confirmLabel, cancelLabel,
-  //   onOpen(sheetEl), onConfirm(sheetEl) → bool,
-  //   onCancel()
-  // })
   function sheet(opts = {}) {
-    // Build overlay + sheet DOM
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.setAttribute('role', 'dialog');
@@ -708,9 +625,7 @@ const UI = (() => {
       <div class="bottom-sheet" role="document">
         <div class="sheet-handle" aria-hidden="true"></div>
         <h2 class="sheet-title">${_escapeHTML(opts.title || '')}</h2>
-        <div class="sheet-body">
-          ${opts.content || ''}
-        </div>
+        <div class="sheet-body">${opts.content || ''}</div>
         <div class="sheet-actions">
           <button class="btn-secondary btn-sheet-cancel">
             ${_escapeHTML(opts.cancelLabel || 'Cancel')}
@@ -724,7 +639,6 @@ const UI = (() => {
     document.body.appendChild(overlay);
     _sheetStack.push(overlay);
 
-    // Open animation (next tick)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => overlay.classList.add('open'));
     });
@@ -733,12 +647,10 @@ const UI = (() => {
     const closeBtn = overlay.querySelector('.btn-sheet-cancel');
     const confBtn  = overlay.querySelector('.btn-sheet-confirm');
 
-    // Call onOpen hook
     if (typeof opts.onOpen === 'function') {
       setTimeout(() => opts.onOpen(sheetEl), 80);
     }
 
-    // Confirm
     confBtn.addEventListener('click', () => {
       if (typeof opts.onConfirm === 'function') {
         const keepOpen = opts.onConfirm(sheetEl) === false;
@@ -748,13 +660,11 @@ const UI = (() => {
       }
     });
 
-    // Cancel
     closeBtn.addEventListener('click', () => {
       if (typeof opts.onCancel === 'function') opts.onCancel();
       _closeSheet(overlay);
     });
 
-    // Tap overlay backdrop to dismiss
     overlay.addEventListener('click', e => {
       if (e.target === overlay) {
         if (typeof opts.onCancel === 'function') opts.onCancel();
@@ -762,7 +672,6 @@ const UI = (() => {
       }
     });
 
-    // Return close handle for programmatic close
     return () => _closeSheet(overlay);
   }
 
@@ -775,24 +684,18 @@ const UI = (() => {
   }
 
   // ─────────────────────────────────────────────────────────
-  // CONFIRM DIALOG (destructive actions)
+  // CONFIRM DIALOG
   // ─────────────────────────────────────────────────────────
 
-  // confirm({
-  //   title, message, confirm, danger, onConfirm, onCancel
-  // })
   function confirm(opts = {}) {
     const isDanger = opts.danger !== false;
-
     sheet({
       title:        opts.title   || 'Are you sure?',
       confirmLabel: opts.confirm || 'Confirm',
       cancelLabel:  'Cancel',
       content: `
-        <p style="font-size:var(--text-sm);
-                  color:var(--color-text-muted);
-                  line-height:1.6;
-                  margin-bottom:var(--space-2);">
+        <p style="font-size:var(--text-sm);color:var(--color-text-muted);
+                  line-height:1.6;margin-bottom:var(--space-2);">
           ${_escapeHTML(opts.message || '')}
         </p>`,
       onOpen(sheetEl) {
@@ -811,8 +714,7 @@ const UI = (() => {
   }
 
   // ─────────────────────────────────────────────────────────
-  // FEEL & FEAR STAR BARS
-  // (Initialised once, used in Morning view + inline in Review)
+  // MOOD BARS (Feel / Fear)
   // ─────────────────────────────────────────────────────────
 
   function initMoodBars() {
@@ -826,7 +728,6 @@ const UI = (() => {
       _updateMoodDesc('fear-description', val, 'fear');
     }, Storage.getFear());
 
-    // Set initial descriptions
     _updateMoodDesc('feel-description', Storage.getFeel(), 'feel');
     _updateMoodDesc('fear-description', Storage.getFear(), 'fear');
   }
@@ -835,7 +736,6 @@ const UI = (() => {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Build 5 star buttons
     container.innerHTML = [1, 2, 3, 4, 5].map(i => `
       <button class="star-btn ${initialValue >= i ? 'active' : ''}"
               data-value="${i}"
@@ -844,19 +744,14 @@ const UI = (() => {
         ${i}
       </button>`).join('');
 
-    // Bind clicks
     container.querySelectorAll('.star-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const val = parseInt(btn.dataset.value, 10);
-
-        // Toggle off if same value tapped again
+        const val     = parseInt(btn.dataset.value, 10);
         const current = parseInt(
-          container.querySelector('.star-btn.active:last-of-type')?.dataset.value || '0',
-          10
+          container.querySelector('.star-btn.active:last-of-type')?.dataset.value || '0', 10
         );
-        const newVal = current === val ? 0 : val;
+        const newVal  = current === val ? 0 : val;
 
-        // Update active states
         container.querySelectorAll('.star-btn').forEach(b => {
           const bVal = parseInt(b.dataset.value, 10);
           const on   = newVal > 0 && bVal <= newVal;
@@ -879,7 +774,7 @@ const UI = (() => {
   }
 
   // ─────────────────────────────────────────────────────────
-  // DATA EXPORT / IMPORT (accessible from a settings sheet)
+  // SETTINGS SHEET
   // ─────────────────────────────────────────────────────────
 
   function openSettingsSheet() {
@@ -892,9 +787,7 @@ const UI = (() => {
             <div class="settings-row-sub">Download all your data as JSON</div>
           </div>
           <button class="btn-secondary" id="btn-export-data"
-                  style="flex-shrink:0;font-size:var(--text-xs);">
-            Export
-          </button>
+                  style="flex-shrink:0;font-size:var(--text-xs);">Export</button>
         </div>
         <div class="settings-row">
           <div>
@@ -902,19 +795,17 @@ const UI = (() => {
             <div class="settings-row-sub">Restore from a previous export</div>
           </div>
           <button class="btn-secondary" id="btn-import-trigger"
-                  style="flex-shrink:0;font-size:var(--text-xs);">
-            Import
-          </button>
+                  style="flex-shrink:0;font-size:var(--text-xs);">Import</button>
         </div>
-        <input type="file" id="import-file-input"
-               accept=".json" class="hidden" aria-hidden="true"/>
+        <input type="file" id="import-file-input" accept=".json"
+               class="hidden" aria-hidden="true"/>
         <div class="settings-row">
           <div>
             <div class="settings-row-label">Pomodoro lengths</div>
-            <div class="settings-row-sub">Work · Break · Long break</div>
+            <div class="settings-row-sub">Work \u00B7 Break \u00B7 Long break</div>
           </div>
           <span style="font-size:var(--text-xs);color:var(--color-text-faint);">
-            30 · 5 · 25 min
+            30 \u00B7 5 \u00B7 25 min
           </span>
         </div>
         <div class="settings-row" style="margin-top:var(--space-4);">
@@ -925,31 +816,24 @@ const UI = (() => {
             <div class="settings-row-sub">Permanent. Cannot be undone.</div>
           </div>
           <button class="btn-danger" id="btn-nuke"
-                  style="flex-shrink:0;font-size:var(--text-xs);">
-            Clear
-          </button>
+                  style="flex-shrink:0;font-size:var(--text-xs);">Clear</button>
         </div>`,
       confirmLabel: 'Done',
       cancelLabel:  '',
       onOpen(sheetEl) {
-        // Hide cancel, repurpose confirm as close
         const cancel = sheetEl.querySelector('.btn-sheet-cancel');
         if (cancel) cancel.style.display = 'none';
 
-        // Export
         sheetEl.querySelector('#btn-export-data')
           ?.addEventListener('click', _exportData);
 
-        // Import
         const importBtn = sheetEl.querySelector('#btn-import-trigger');
         const fileInput = sheetEl.querySelector('#import-file-input');
-
         importBtn?.addEventListener('click', () => fileInput?.click());
         fileInput?.addEventListener('change', e => {
           _importData(e.target.files?.[0]);
         });
 
-        // Nuke
         sheetEl.querySelector('#btn-nuke')
           ?.addEventListener('click', () => {
             confirm({
@@ -969,13 +853,13 @@ const UI = (() => {
   }
 
   function _exportData() {
-    const json     = Storage.exportJSON();
-    const blob     = new Blob([json], { type: 'application/json' });
-    const url      = URL.createObjectURL(blob);
-    const a        = document.createElement('a');
-    const dateStr  = new Date().toISOString().split('T')[0];
-    a.href         = url;
-    a.download     = `focus-compass-backup-${dateStr}.json`;
+    const json    = Storage.exportJSON();
+    const blob    = new Blob([json], { type: 'application/json' });
+    const url     = URL.createObjectURL(blob);
+    const a       = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    a.href        = url;
+    a.download    = `focus-compass-backup-${dateStr}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -989,13 +873,69 @@ const UI = (() => {
     reader.onload = e => {
       const result = Storage.importJSON(e.target.result);
       if (result.ok) {
-        toast('Data imported! Reloading…', 'success');
+        toast('Data imported! Reloading\u2026', 'success');
         setTimeout(() => location.reload(), 1200);
       } else {
         toast('Import failed: ' + result.error, 'error');
       }
     };
     reader.readAsText(file);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // DISCIPLINE TABS + STOIC THOUGHT
+  // ─────────────────────────────────────────────────────────
+
+  function _bindDisciplineTabs() {
+    document.querySelectorAll('.discipline-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.discipline-tab').forEach(t => {
+          t.classList.remove('active');
+          t.setAttribute('aria-selected', 'false');
+        });
+        tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
+        const d = tab.dataset.discipline;
+        Storage.setDiscipline(d);
+        _updateDisciplineDesc(d);
+      });
+    });
+  }
+
+  function _updateDisciplineDesc(discipline) {
+    const descs = {
+      desire: 'What you want and fear \u2014 desiring only what is truly in your control.',
+      action: 'How you act in the world \u2014 with effort, reservation, and care for others.',
+      assent: 'How you judge impressions \u2014 not every thought deserves your agreement.'
+    };
+    const el = document.getElementById('discipline-desc');
+    if (el) el.textContent = descs[discipline] || '';
+  }
+
+  function _renderStoicThought() {
+    if (typeof STOIC_THOUGHTS === 'undefined') return;
+    const day  = _getDayOfYear();
+    const r    = day % 3;
+    const disc = r === 1 ? 'desire' : r === 2 ? 'action' : 'assent';
+    const idx  = Math.floor((day - 1) / 3) % 122;
+
+    const thought = STOIC_THOUGHTS[disc]?.[idx] || STOIC_THOUGHTS.desire[0];
+
+    const labels = { desire: '\u25C8 Desire', action: '\u25C7 Action', assent: '\u25CB Assent' };
+    _setText('stoic-discipline-badge', labels[disc]);
+    _setText('stoic-thought-text',     thought.text);
+    _setText('stoic-source',           '\u2014 ' + thought.source);
+
+    document.querySelectorAll('.discipline-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.discipline === disc);
+    });
+    _updateDisciplineDesc(disc);
+  }
+
+  function _getDayOfYear() {
+    const now   = new Date();
+    const start = new Date(now.getFullYear(), 0, 0);
+    return Math.floor((now - start) / (1000 * 60 * 60 * 24));
   }
 
   // ─────────────────────────────────────────────────────────
@@ -1032,72 +972,18 @@ const UI = (() => {
                 'Paralysed, can\'t start'][v] || '';
   }
 
-  
-
-  function _bindDisciplineTabs() {
-  document.querySelectorAll('.discipline-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.discipline-tab')
-        .forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
-      tab.classList.add('active');
-      tab.setAttribute('aria-selected','true');
-      const d = tab.dataset.discipline;
-      Storage.setDiscipline(d);
-      
-      _updateDisciplineDesc(d);
-    });
-  });
-  }
-
-  function _updateDisciplineDesc(discipline) {
-    const descs = {
-      desire:  'What you want and fear — desiring only what is truly in your control.',
-      action:  'How you act in the world — with effort, reservation, and care for others.',
-      assent:  'How you judge impressions — not every thought deserves your agreement.'
-    };
-    const el = document.getElementById('discipline-desc');
-    if (el) el.textContent = descs[discipline] || '';
-  }
-
-  function _renderStoicThought() {
-    if (typeof STOIC_THOUGHTS === 'undefined') return;
-    const day  = _getDayOfYear();
-    const r    = day % 3;
-    const disc = r === 1 ? 'desire' : r === 2 ? 'action' : 'assent';
-    const idx  = Math.floor((day - 1) / 3) % 122;
-
-    const thought = STOIC_THOUGHTS[disc]?.[idx] || STOIC_THOUGHTS.desire[0];
-
-    const labels = { desire: '◈ Desire', action: '◇ Action', assent: '○ Assent' };
-    _setText('stoic-discipline-badge', labels[disc]);
-    _setText('stoic-thought-text',     thought.text);
-    _setText('stoic-source',           '— ' + thought.source);
-
-    // Sync active discipline tab to today's discipline
-    document.querySelectorAll('.discipline-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.discipline === disc);
-    });
-    _updateDisciplineDesc(disc);
-  }
-
-  function _getDayOfYear() {
-    const now   = new Date();
-    const start = new Date(now.getFullYear(), 0, 0);
-    return Math.floor((now - start) / (1000 * 60 * 60 * 24));
-  }
-
   // ─────────────────────────────────────────────────────────
   // PUBLIC API
   // ─────────────────────────────────────────────────────────
   return {
     init,
     initMoodBars,
-    navigateTo:         _navigateTo,
+    navigateTo:       _navigateTo,
     toast,
     sheet,
     confirm,
     openSettingsSheet,
-    renderReview:       _renderReviewView,
+    renderReview:     _renderReviewView,
   };
 
 })();
